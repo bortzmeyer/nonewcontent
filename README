@@ -1,0 +1,58 @@
+NoNewContent is an echo server (see RFC 862 for the echo protocol). It
+is intended as a research project and is not probably suitable for use
+on the wild Internet.
+
+The official source is <http://github.com/bortzmeyer/nonewcontent>
+
+Usage
+*****
+
+./nonewcontent [-address="[ADDRESS]:PORT"] 
+
+Run with -h to see the defaults (and the other, less common, options)
+
+The -address option takes either a port (in the syntax ":NNN"), in
+that case NoNewContent listens on all IP addresses, or one address (in
+the syntax "x.y.z.T:NNN" for IPv4 and "[xxxx:yyyy::zzzz]:NNN" for
+IPv6). If you want to listen on some (but not all) of the IP
+addresses, separate them with commas, for instance
+"-address=127.0.0.1:8001,[2001:db8::FADA]:8003".
+
+For the person who compiles
+**************************
+
+You need a working Go <http://golang.org> environment. Today, only the
+gc compiler is supported.
+
+Then, just type:
+
+make
+
+
+Implementation notes
+********************
+
+One goroutine is run for every echo request. Makes the code much
+simpler and easier to read.
+
+TODO
+****
+
+Use the log package?
+
+Test with gccgo
+
+Daemonize <http://groups.google.com/group/golang-nuts/browse_thread/thread/2b29d93b90501a4b/95242bfb7ae0549e>
+
+Author
+******
+
+Stéphane Bortzmeyer <stephane+grong@bortzmeyer.org>
+
+
+License
+*******
+
+This is free software. Free as in free speech, not as in free beer.
+
+See the actual license in LICENSE

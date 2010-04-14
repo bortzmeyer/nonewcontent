@@ -10,7 +10,7 @@ import (
 
 const (
 	maxUDPsize   int = 65536
-	chunkTCPsize     = 1024
+	chunkTCPsize = 1024
 )
 
 var (
@@ -19,12 +19,25 @@ var (
 	channels map[string]chan bool
 )
 
+func exit() {
+	status := recover()
+	if status != nil {
+		fmt.Fprintf(os.Stderr, "Abnormal exit: %s\n", status)
+	}
+}
+
+func checkError(msg string, error os.Error) {
+	if error != nil {
+		panic(fmt.Sprintf("%s: %s", msg, error))
+	}
+}
+
 func handleudp(conn *net.UDPConn, remaddr net.Addr, message []byte) {
 	fmt.Printf("UDP packet from %s (to %s)... ", remaddr, conn.LocalAddr())
 	n, error := conn.WriteTo(message, remaddr)
-	if error != nil || n != len(message) {
-		fmt.Printf("Cannot write: %s\n", error)
-		os.Exit(1)
+	checkError("Cannot write", error)
+	if n != len(message) {
+		panic("Cannot write")
 	}
 	fmt.Printf("Echoed %d bytes\n", n)
 }
@@ -40,13 +53,12 @@ func handletcp(conn *net.TCPConn) {
 			if error == os.EOF {
 				break
 			}
-			fmt.Printf("Cannot read: %s\n", error)
-			os.Exit(1)
+			panic("Cannot read")
 		}
 		n2, error := conn.Write(message[0:n1])
-		if error != nil || n2 != n1 {
-			fmt.Printf("Cannot write: %s\n", error)
-			os.Exit(1)
+		checkError("Cannot write", error)
+		if n2 != n1 {
+			panic("Cannot write completely")
 		}
 		total += n2
 	}
@@ -57,10 +69,7 @@ func handletcp(conn *net.TCPConn) {
 func waitfortcp(listener *net.TCPListener, channel chan bool) {
 	for { // ever...
 		conn, error := listener.AcceptTCP()
-		if error != nil {
-			fmt.Printf("Cannot accept: %s\n", error)
-			os.Exit(1)
-		}
+		checkError("Cannot accept", error)
 		go handletcp(conn)
 	}
 	channel <- true
@@ -70,10 +79,7 @@ func waitforudp(conn *net.UDPConn, channel chan bool) {
 	message := make([]byte, maxUDPsize)
 	for { // ever...
 		n, remaddr, error := conn.ReadFrom(message)
-		if error != nil {
-			fmt.Printf("Cannot read from: %s\n", error)
-			os.Exit(1)
-		}
+		checkError("Cannot read from", error)
 		go handleudp(conn, remaddr, message[0:n])
 	}
 	channel <- true
@@ -94,9 +100,7 @@ func listenTCP(tcptype string, addr *net.TCPAddr, listen string, mustsucceed boo
 	listener_p, error := net.ListenTCP(tcptype, addr)
 	if error != nil {
 		if mustsucceed {
-			fmt.Printf("Cannot listen with \"%s\" on \"%s\": %s\n", tcptype, listen,
-				error)
-			os.Exit(1)
+			panic(fmt.Sprintf("Cannot listen with \"%s\" on \"%s\": %s", tcptype, listen, error))
 		} else {
 			return
 		}
@@ -106,17 +110,16 @@ func listenTCP(tcptype string, addr *net.TCPAddr, listen string, mustsucceed boo
 }
 
 func listenUDP(udptype string, addr *net.UDPAddr, listen string, mustsucceed bool) {
+	// TODO: mustsucceed useless?
 	connection_p, error := net.ListenUDP(udptype, addr)
-	if error != nil {
-		fmt.Printf("Cannot listen with \"%s\" on \"%s\": %s\n", udptype, listen,
-			error)
-		os.Exit(1)
-	}
+	checkError(fmt.Sprintf("Cannot listen with \"%s\" on \"%s\"", udptype, listen),
+		error)
 	channels[udptype+":"+listen] = make(chan bool)
 	go waitforudp(connection_p, channels[udptype+":"+listen])
 }
 
 func main() {
+	defer exit()
 	channels = make(map[string]chan bool)
 	listen_p := flag.String("address", ":7", "Set the port (+optional address) to listen at")
 	v4only_p := flag.Bool("4", false, "Listens only with IPv4")
@@ -127,20 +130,15 @@ func main() {
 	listens := strings.Split(*listen_p, ",", 0)
 	for _, listen := range listens {
 		addr, error := net.ResolveTCPAddr(listen)
-		if error != nil {
-			fmt.Printf("Cannot parse \"%s\": %s\n", listen, error)
-			os.Exit(1)
-		}
+		checkError(fmt.Sprintf("Cannot parse \"%s\"", listen), error)
 		if isTCPIPv6(addr) {
 			if v4only {
-				fmt.Printf("IPv6 address \"%s\" with option v4-only\n", addr.String())
-				os.Exit(1)
+				panic(fmt.Sprintf("IPv6 address \"%s\" with option v4-only", addr.String()))
 			}
 			listenTCP("tcp6", addr, listen, true)
 		} else if isTCPIPv4(addr) {
 			if v6only {
-				fmt.Printf("IPv4 address \"%s\" with option v6-only\n", addr.String())
-				os.Exit(1)
+				panic(fmt.Sprintf("IPv4 address \"%s\" with option v6-only", addr.String()))
 			}
 			listenTCP("tcp4", addr, listen, true)
 		} else { /* Address family unspecified.

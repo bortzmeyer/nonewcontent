@@ -1,23 +1,18 @@
-include $(GOROOT)/src/Make.$(GOARCH)
-
 TARBALL=/tmp/nonewcontent.tar.gz
 
 all: nonewcontent
 
 test: nonewcontent
-	./nonewcontent -debug=4
+	./nonewcontent 
 
-%.$O: %.go 
-	${GC} $<
-
-nonewcontent: nonewcontent.$O
-	${LD} -o $@ nonewcontent.$O
+%: %.go 
+	go build $<
 
 dist: distclean
 	(cd ..; tar czvf ${TARBALL} nonewcontent/*)
 
 clean:
-	rm -f nonewcontent *.$O *.a
+	rm -f nonewcontent
 
 distclean: clean
 	rm -f *~ 

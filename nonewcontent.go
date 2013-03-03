@@ -1,16 +1,17 @@
 package main
 
 import (
-	"net"
 	"flag"
-	"os"
 	"fmt"
+	"io"
+	"net"
+	"os"
 	"strings"
 )
 
 const (
 	maxUDPsize   int = 65536
-	chunkTCPsize = 1024
+	chunkTCPsize     = 1024
 )
 
 var (
@@ -26,9 +27,9 @@ func exit() {
 	}
 }
 
-func checkError(msg string, error os.Error) {
-	if error != nil {
-		panic(fmt.Sprintf("%s: %s", msg, error))
+func checkError(msg string, err error) {
+	if err != nil {
+		panic(fmt.Sprintf("%s: %s", msg, err))
 	}
 }
 
@@ -48,15 +49,15 @@ func handletcp(conn *net.TCPConn) {
 	total := 0
 	for {
 		message := make([]byte, chunkTCPsize)
-		n1, error := conn.Read(message)
-		if error != nil {
-			if error == os.EOF {
+		n1, err := conn.Read(message)
+		if err != nil {
+			if err == io.EOF {
 				break
 			}
 			panic("Cannot read")
 		}
-		n2, error := conn.Write(message[0:n1])
-		checkError("Cannot write", error)
+		n2, err := conn.Write(message[0:n1])
+		checkError("Cannot write", err)
 		if n2 != n1 {
 			panic("Cannot write completely")
 		}
@@ -86,14 +87,39 @@ func waitforudp(conn *net.UDPConn, channel chan bool) {
 }
 
 // No routine in package net to test if an address is v4 or v6?
-func isTCPIPv6(address *net.TCPAddr) bool { return (address.String()[0] == '[') }
-func isTCPIPv4(address *net.TCPAddr) bool {
-	return (address.String()[0] != '[') && (address.String()[0] != ':')
+func isTCPIPv6(address *net.TCPAddr) bool {
+	if strings.HasPrefix(address.String(), "<nil>") {
+		return false
+	} else {
+		return (address.String()[0] == '[')
+	}
+	return false // Should never arrive here
 }
+func isTCPIPv4(address *net.TCPAddr) bool {
+	if strings.HasPrefix(address.String(), "<nil>") {
+		return false
+	} else {
+		return (address.String()[0] != '[') && (address.String()[0] != ':')
+	}
+	return false // Should never arrive here
+}
+
 /* No way to have a generic function, working for both TCPAddr and UDPAddr? */
-func isUDPIPv6(address *net.UDPAddr) bool { return (address.String()[0] == '[') }
+func isUDPIPv6(address *net.UDPAddr) bool {
+	if strings.HasPrefix(address.String(), "<nil>") {
+		return false
+	} else {
+		return (address.String()[0] == '[')
+	}
+	return false // Should never arrive here
+}
 func isUDPIPv4(address *net.UDPAddr) bool {
-	return (address.String()[0] != '[') && (address.String()[0] != ':')
+	if strings.HasPrefix(address.String(), "<nil>") {
+		return false
+	} else {
+		return (address.String()[0] != '[') && (address.String()[0] != ':')
+	}
+	return false // Should never arrive here
 }
 
 func listenTCP(tcptype string, addr *net.TCPAddr, listen string, mustsucceed bool) {
@@ -127,10 +153,10 @@ func main() {
 	flag.Parse()
 	v4only = *v4only_p
 	v6only = *v6only_p
-	listens := strings.Split(*listen_p, ",", 0)
+	listens := strings.Split(*listen_p, ",")
 	for _, listen := range listens {
-		addr, error := net.ResolveTCPAddr(listen)
-		checkError(fmt.Sprintf("Cannot parse \"%s\"", listen), error)
+		addr, err := net.ResolveTCPAddr("tcp", listen)
+		checkError(fmt.Sprintf("Cannot parse \"%s\"", listen), err)
 		if isTCPIPv6(addr) {
 			if v4only {
 				panic(fmt.Sprintf("IPv6 address \"%s\" with option v4-only", addr.String()))
@@ -141,50 +167,36 @@ func main() {
 				panic(fmt.Sprintf("IPv4 address \"%s\" with option v6-only", addr.String()))
 			}
 			listenTCP("tcp4", addr, listen, true)
-		} else { /* Address family unspecified.
-			Ideally, listening on "tcp" should be
-			sufficient. But on a Linux system where the
-			sysctl variable net.ipv6.bindv6only is 1,
-			listening on "tcp" only listens on IPv6
-			addresses :-( And there is no easy way to find
-			out that this happened. You can run "sudo
-			sysctl -w net.ipv6.bindv6only=0" but you are
-			not always root (and it may break other
-			things). So, we call listen twice, one for
-			IPv4 and one for v6. How awful. */
-			if !v4only {
-				addr, _ = net.ResolveTCPAddr("[::]" + listen)
-				listenTCP("tcp6", addr, listen, true)
-			}
-			if !v6only {
-				addr, _ = net.ResolveTCPAddr("0.0.0.0" + listen)
+		} else { // Address family unspecified. 
+			if !v4only && !v6only {
+				listenTCP("tcp", addr, listen, true)
+			} else {
+				if v6only {
+					addr, _ = net.ResolveTCPAddr("tcp", "[::]"+listen)
+					listenTCP("tcp6", addr, listen, true)
+				}
 				if v4only {
+					addr, _ = net.ResolveTCPAddr("tcp", "0.0.0.0"+listen)
 					listenTCP("tcp4", addr, listen, true)
-				} else {
-					listenTCP("tcp4", addr, listen, false) // May fail on Linux
-					// if bindv6only is 0 because the previous call to
-					// listenTCP blocked all addresses (v4 and v6)
 				}
 			}
 		}
-		/* See the TCP code for the strange things we do to listen both on
-		IPv4 and IPv6 */
-		uaddr, error := net.ResolveUDPAddr(listen)
+		uaddr, err := net.ResolveUDPAddr("udp", listen)
 		if isUDPIPv6(uaddr) {
 			listenUDP("udp6", uaddr, listen, true)
 		} else if isUDPIPv4(uaddr) {
 			listenUDP("udp4", uaddr, listen, true)
 		} else { /* Address family unspecified. */
-			if !v4only {
-				uaddr, _ = net.ResolveUDPAddr("[::]" + listen)
-				listenUDP("udp6", uaddr, listen, true)
-			}
-			if !v6only {
-				uaddr, _ = net.ResolveUDPAddr("0.0.0.0" + listen)
+			if !v4only && !v6only {
+				listenUDP("udp", uaddr, listen, true)
+			} else {
 				if v4only {
-					listenUDP("udp4", uaddr, listen, false)
-				} else {
+					uaddr, _ = net.ResolveUDPAddr("udp", "0.0.0.0"+listen)
 					listenUDP("udp4", uaddr, listen, true)
+				}
+				if v6only {
+					uaddr, _ = net.ResolveUDPAddr("udp", "[::]"+listen)
+					listenUDP("udp6", uaddr, listen, true)
 				}
 			}
 		}
